@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import secrets
+import tempfile
 from datetime import datetime
 
 from flask import (
@@ -10,12 +11,15 @@ from flask import (
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# Vercel serverless environment check (Vercel uses /tmp for writable storage)
-IS_VERCEL = os.environ.get("VERCEL") == "1"
-if IS_VERCEL:
-    BASE_DIR = "/tmp"
-else:
+# Automatic Write Permission & Path Check (Prevents permission denied errors)
+try:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    test_path = os.path.join(BASE_DIR, "test_write.tmp")
+    with open(test_path, "w") as f:
+        f.write("test")
+    os.remove(test_path)
+except Exception:
+    BASE_DIR = tempfile.gettempdir()
 
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 DB_PATH = os.path.join(BASE_DIR, "store.db")
@@ -27,12 +31,13 @@ ALLOWED_ICON_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "svg"}
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
-app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024
+
+# File upload limit set to 2GB to support larger APKs like Termux
+app.config["MAX_CONTENT_LENGTH"] = 2000 * 1024 * 1024 
 
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.environ.get("USE_HTTPS") == "1",
 )
 
 # ---------------------------------------------------------------------------
@@ -150,52 +155,57 @@ def index():
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    name = request.form.get("name", "").strip()
-    category = request.form.get("category", "Tools")
-    price = request.form.get("price", "").strip() or "Free"
-    description = request.form.get("description", "").strip() or "My APK application."
+    try:
+        name = request.form.get("name", "").strip()
+        category = request.form.get("category", "Tools")
+        price = request.form.get("price", "").strip() or "Free"
+        description = request.form.get("description", "").strip() or "My APK application."
 
-    app_file = request.files.get("app_file")
-    icon_file = request.files.get("icon_file")
+        app_file = request.files.get("app_file")
+        icon_file = request.files.get("icon_file")
 
-    if not name:
-        flash("❌ Please enter an app name.")
-        return redirect(url_for("index"))
-    if not app_file or app_file.filename == "":
-        flash("❌ Please select an APK file to upload.")
-        return redirect(url_for("index"))
-    if not allowed_file(app_file.filename, ALLOWED_APP_EXTENSIONS):
-        flash("❌ Only .apk files are allowed!")
-        return redirect(url_for("index"))
-    if icon_file and icon_file.filename != "" and not allowed_file(icon_file.filename, ALLOWED_ICON_EXTENSIONS):
-        flash("❌ Invalid icon format.")
-        return redirect(url_for("index"))
+        if not name:
+            flash("❌ Please enter an app name.")
+            return redirect(url_for("index"))
+        if not app_file or app_file.filename == "":
+            flash("❌ Please select an APK file to upload.")
+            return redirect(url_for("index"))
+        if not allowed_file(app_file.filename, ALLOWED_APP_EXTENSIONS):
+            flash("❌ Only .apk files are allowed!")
+            return redirect(url_for("index"))
+        if icon_file and icon_file.filename != "" and not allowed_file(icon_file.filename, ALLOWED_ICON_EXTENSIONS):
+            flash("❌ Invalid icon format.")
+            return redirect(url_for("index"))
 
-    app_id = "app_" + secrets.token_hex(8)
-    file_filename = secure_filename(f"{app_id}_{app_file.filename}")
-    app_file.save(os.path.join(UPLOAD_DIR, file_filename))
-    file_size = os.path.getsize(os.path.join(UPLOAD_DIR, file_filename))
+        app_id = "app_" + secrets.token_hex(8)
+        file_filename = secure_filename(f"{app_id}_{app_file.filename}")
+        save_path = os.path.join(UPLOAD_DIR, file_filename)
+        app_file.save(save_path)
+        file_size = os.path.getsize(save_path)
 
-    icon_filename = None
-    if icon_file and icon_file.filename != "":
-        icon_filename = secure_filename(f"{app_id}_icon_{icon_file.filename}")
-        icon_file.save(os.path.join(UPLOAD_DIR, icon_filename))
+        icon_filename = None
+        if icon_file and icon_file.filename != "":
+            icon_filename = secure_filename(f"{app_id}_icon_{icon_file.filename}")
+            icon_file.save(os.path.join(UPLOAD_DIR, icon_filename))
 
-    rating = fixed_rating_for(app_id)
+        rating = fixed_rating_for(app_id)
 
-    conn = get_db()
-    conn.execute(
-        """INSERT INTO apps
-           (id, name, category, price, rating, description, icon_filename,
-            file_filename, file_original_name, file_size, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (app_id, name, category, price, rating, description, icon_filename,
-         file_filename, app_file.filename, file_size, datetime.utcnow().isoformat()),
-    )
-    conn.commit()
-    conn.close()
+        conn = get_db()
+        conn.execute(
+            """INSERT INTO apps
+               (id, name, category, price, rating, description, icon_filename,
+                file_filename, file_original_name, file_size, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (app_id, name, category, price, rating, description, icon_filename,
+             file_filename, app_file.filename, file_size, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+        conn.close()
 
-    flash("✅ APK Uploaded Successfully!")
+        flash("✅ APK Uploaded Successfully!")
+    except Exception as e:
+        flash(f"❌ Error uploading file: {str(e)}")
+    
     return redirect(url_for("index"))
 
 
@@ -328,14 +338,14 @@ a{color:inherit;text-decoration:none}
 .fab{position:fixed;right:20px;bottom:85px;border-radius:50%;width:52px;height:52px;font-size:20px;
   background:linear-gradient(90deg,var(--blue),var(--purple));border:0;color:#fff;box-shadow:0 8px 22px #a855f755;cursor:pointer;z-index:40;}
 
-/* Bottom Nav Bar (ដូចในรูปที่ 1) */
+/* Bottom Nav Bar */
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;height:70px;background:#120c29;border-top:1px solid var(--border);
   display:flex;justify-content:space-around;align-items:center;z-index:40;padding-bottom:env(safe-area-inset-bottom);}
 .nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);font-size:11px;padding:6px 12px;border-radius:12px;background:transparent;border:0;cursor:pointer;}
 .nav-item.active{color:#fff;background:#23174f;}
 .nav-item svg{width:22px;height:22px;fill:currentColor;}
 
-/* App Detail Modal (ដូចในรูปที่ 2) */
+/* App Detail Modal */
 .detail-top{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
 .detail-icon{width:68px;height:68px;border-radius:18px;overflow:hidden;flex-shrink:0;background:#2a1f56;display:grid;place-items:center;}
 .detail-icon img{width:100%;height:100%;object-fit:cover;}
@@ -346,7 +356,6 @@ a{color:inherit;text-decoration:none}
 .stat-box .val{font-size:15px;font-weight:800;color:#fff;display:flex;align-items:center;justify-content:center;gap:3px;}
 .stat-box .val span{color:var(--yellow);font-size:14px;}
 .stat-box .lbl{font-size:11px;color:var(--muted);margin-top:2px;}
-.verified{color:var(--green);font-size:12px;display:flex;align-items:center;gap:4px;}
 </style>
 </head>
 <body>
@@ -428,7 +437,7 @@ a{color:inherit;text-decoration:none}
 <!-- Floating Action Button for Upload -->
 <button class="fab" title="Upload APK" onclick="document.getElementById('uploadModal').classList.add('show')">➕</button>
 
-<!-- Bottom Navigation Bar (Matching Screenshot 1) -->
+<!-- Bottom Navigation Bar -->
 <nav class="bottom-nav">
   <a href="{{ url_for('index', tab='apps') }}" class="nav-item {{ 'active' if tab == 'apps' else '' }}">
     <svg viewBox="0 0 24 24"><path d="M4 4h7v7H4V4m9 0h7v7h-7V4M4 13h7v7H4v-7m9 0h7v7h-7v-7Z"/></svg>
@@ -448,7 +457,7 @@ a{color:inherit;text-decoration:none}
   </a>
 </nav>
 
-<!-- App Detail Modal (Matching Screenshot 2) -->
+<!-- App Detail Modal -->
 <div class="modal" id="appDetailModal">
   <div class="modal-card">
     <div style="display:flex;justify-content:flex-end;margin-bottom:-10px;">
@@ -509,8 +518,8 @@ a{color:inherit;text-decoration:none}
         <input type="file" name="avatar_file" accept="image/*">
       </div>
       <div class="form-row">
-        <label>🔐 Owner Password (Default: naresh123)</label>
-        <input type="password" name="owner_password" placeholder="Enter owner password" required>
+        <label>🔐 Owner Password</label>
+        <input type="password" name="owner_password" placeholder="Enter password to update profile" required>
       </div>
       <div class="modal-actions">
         <button type="button" class="cancel" onclick="document.getElementById('profileModal').classList.remove('show')">Close</button>
@@ -528,13 +537,13 @@ a{color:inherit;text-decoration:none}
     <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data">
       <div class="form-row">
         <label>App Name</label>
-        <input name="name" placeholder="e.g. My Android App" required>
+        <input name="name" placeholder="e.g. Termux" required>
       </div>
       <div class="form-row">
         <label>Category</label>
         <select name="category">
-          <option>Games</option>
           <option>Tools</option>
+          <option>Games</option>
           <option>Productivity</option>
           <option>Social</option>
           <option>Books</option>
