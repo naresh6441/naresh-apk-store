@@ -60,10 +60,12 @@ def init_db():
             file_filename TEXT NOT NULL,
             file_original_name TEXT NOT NULL,
             file_size INTEGER NOT NULL,
+            downloads INTEGER DEFAULT 150,
+            reviews_count INTEGER DEFAULT 5,
             created_at TEXT NOT NULL
         )
     """)
-    # Owner Profile Table (Stores Owner Profile Image & Secure Password)
+    # Owner Profile Table
     conn.execute("""
         CREATE TABLE IF NOT EXISTS owner_profile (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -73,10 +75,9 @@ def init_db():
         )
     """)
     
-    # Default owner profile creation if not exists
     existing = conn.execute("SELECT id FROM owner_profile WHERE id = 1").fetchone()
     if not existing:
-        default_pwd = generate_password_hash("naresh123")  # Default owner password
+        default_pwd = generate_password_hash("naresh123")
         conn.execute(
             "INSERT INTO owner_profile (id, name, avatar_filename, password_hash) VALUES (1, ?, ?, ?)",
             ("Naresh XX", "", default_pwd)
@@ -92,11 +93,16 @@ def get_owner():
     return row
 
 
-def get_apps(order_by_rating=False):
+def get_apps(tab="apps"):
     conn = get_db()
-    sql = "SELECT * FROM apps ORDER BY " + (
-        "rating DESC" if order_by_rating else "created_at DESC"
-    )
+    if tab == "top":
+        sql = "SELECT * FROM apps ORDER BY rating DESC"
+    elif tab == "games":
+        sql = "SELECT * FROM apps WHERE category = 'Games' ORDER BY created_at DESC"
+    elif tab == "books":
+        sql = "SELECT * FROM apps WHERE category = 'Books' ORDER BY created_at DESC"
+    else:
+        sql = "SELECT * FROM apps ORDER BY created_at DESC"
     rows = conn.execute(sql).fetchall()
     conn.close()
     return rows
@@ -131,7 +137,7 @@ def fixed_rating_for(app_id):
 @app.route("/")
 def index():
     tab = request.args.get("tab", "apps")
-    apps_rows = get_apps(order_by_rating=(tab == "top"))
+    apps_rows = get_apps(tab=tab)
     owner = get_owner()
     return render_template_string(
         PAGE_TEMPLATE,
@@ -200,7 +206,6 @@ def update_profile():
     avatar_file = request.files.get("avatar_file")
 
     owner = get_owner()
-    # Check owner password to secure profile changes
     if not check_password_hash(owner["password_hash"], password):
         flash("❌ Wrong Owner Password! Profile cannot be changed.")
         return redirect(url_for("index"))
@@ -226,6 +231,9 @@ def update_profile():
 def download(app_id):
     conn = get_db()
     row = conn.execute("SELECT * FROM apps WHERE id = ?", (app_id,)).fetchone()
+    if row:
+        conn.execute("UPDATE apps SET downloads = downloads + 1 WHERE id = ?", (app_id,))
+        conn.commit()
     conn.close()
     if not row:
         abort(404)
@@ -268,54 +276,48 @@ PAGE_TEMPLATE = """
 }
 *{box-sizing:border-box}
 body{
-  margin:0;font-family:Inter,system-ui,sans-serif;color:var(--text);padding-bottom:40px;
+  margin:0;font-family:Inter,system-ui,sans-serif;color:var(--text);padding-bottom:90px;
   background:radial-gradient(circle at 10% 10%,#1e3fae66,transparent 25%),
              radial-gradient(circle at 90% 20%,#8a1fc966,transparent 25%),
              radial-gradient(circle at 50% 100%,#ff2d9233,transparent 30%),var(--bg);
 }
-a{color:inherit}
+a{color:inherit;text-decoration:none}
 .store-header{position:sticky;top:0;z-index:50;background:linear-gradient(180deg,#1a1338,#150f2e 90%);
-  border-bottom:1px solid var(--border);padding:16px 18px;}
+  border-bottom:1px solid var(--border);padding:14px 18px;}
 .header-top{display:flex;align-items:center;justify-content:space-between;gap:12px;}
 .logo-brand{display:flex;align-items:center;gap:12px;}
-.owner-avatar-btn{width:52px;height:52px;border-radius:16px;border:2px solid var(--blue);overflow:hidden;cursor:pointer;
+.owner-avatar-btn{width:46px;height:46px;border-radius:14px;border:2px solid var(--blue);overflow:hidden;cursor:pointer;
   background:linear-gradient(135deg,var(--blue),var(--purple),var(--pink));display:grid;place-items:center;padding:0;}
 .owner-avatar-btn img{width:100%;height:100%;object-fit:cover;}
-.owner-avatar-btn span{font-size:22px;font-weight:900;color:#fff;}
-.logo-brand h1{font-size:19px;margin:0;}
+.owner-avatar-btn span{font-size:20px;font-weight:900;color:#fff;}
+.logo-brand h1{font-size:18px;margin:0;}
 .logo-brand h1 span{background:linear-gradient(90deg,var(--blue),var(--purple),var(--pink));
   -webkit-background-clip:text;color:transparent;}
-.logo-brand p{margin:2px 0 0;color:var(--muted);font-size:13px;}
-.search-row{margin-top:14px;}
-.search-row input{width:100%;height:44px;border:1px solid var(--border);background:#160f30;color:#fff;
-  border-radius:12px;padding:0 15px;outline:0;}
-.content{padding:20px 16px 10px;max-width:1100px;margin:0 auto;}
-.section-title{display:flex;align-items:center;gap:8px;margin:6px 0 16px;}
-.tabs{display:flex;gap:10px;margin-bottom:16px;}
-.tabs a{padding:8px 14px;border-radius:10px;border:1px solid var(--border);color:var(--muted);font-size:13px;text-decoration:none;}
-.tabs a.active{color:#fff;border-color:var(--blue);background:#1e1642;}
-.cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px;}
+.logo-brand p{margin:2px 0 0;color:var(--muted);font-size:12px;}
+.search-row{margin-top:12px;}
+.search-row input{width:100%;height:40px;border:1px solid var(--border);background:#160f30;color:#fff;
+  border-radius:12px;padding:0 14px;outline:0;}
+.content{padding:16px 14px 10px;max-width:1100px;margin:0 auto;}
+.section-title{display:flex;align-items:center;gap:8px;margin:6px 0 14px;}
+.section-title h2{font-size:18px;margin:0;}
+.cards-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;}
 .card{background:linear-gradient(145deg,#20134a,#15102f 55%,#241044);border:1px solid #5d43a8;
-  border-radius:13px;padding:8px 6px;text-align:center;}
-.thumb{width:72%;aspect-ratio:1/1;margin:0 auto 7px;border-radius:18px;overflow:hidden;display:grid;
-  place-items:center;font-size:30px;background:radial-gradient(circle,#3a2f6b,#150f2e);}
+  border-radius:16px;padding:10px 8px;text-align:center;cursor:pointer;transition:transform 0.2s;}
+.card:active{transform:scale(0.97);}
+.thumb{width:100%;aspect-ratio:1/1;margin:0 auto 8px;border-radius:14px;overflow:hidden;display:grid;
+  place-items:center;font-size:28px;background:radial-gradient(circle,#3a2f6b,#150f2e);}
 .thumb img{width:100%;height:100%;object-fit:cover;}
-.card h3{font-size:11px;margin:0 0 3px;min-height:28px;}
-.card .rating{font-size:10px;color:var(--yellow);}
-.card .filesize{font-size:9px;color:var(--muted);margin-top:2px;}
-.card-actions{display:flex;gap:4px;margin-top:6px;}
-.small-btn{flex:1;padding:6px 4px;border-radius:7px;border:1px solid #4a3b7a;background:#1a1338;
-  color:#fff;font-size:10px;font-weight:800;cursor:pointer;text-decoration:none;display:inline-block;}
-.install{background:linear-gradient(135deg,#00d4ff,#7c4dff 52%,#ff2d92);border-color:transparent;box-shadow:0 4px 12px #8a2be644;}
-.empty-store{margin-top:20px;padding:55px 20px;text-align:center;border:1px dashed #4a3b7a;
+.card h3{font-size:12px;margin:0 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.card .rating{font-size:11px;color:var(--yellow);font-weight:600;}
+.empty-store{margin-top:20px;padding:45px 20px;text-align:center;border:1px dashed #4a3b7a;
   border-radius:18px;background:linear-gradient(145deg,#160f30,#1c1030);}
 .btn{border:0;border-radius:11px;padding:12px 20px;background:linear-gradient(90deg,var(--blue),var(--purple),var(--pink));
   color:#fff;font-weight:800;cursor:pointer;}
 .cancel{border:1px solid #4a3b7a;background:transparent;color:#dbe4f2;border-radius:10px;padding:11px 17px;cursor:pointer;}
-.modal{position:fixed;inset:0;background:#000c;display:none;place-items:center;z-index:300;padding:20px;}
+.modal{position:fixed;inset:0;background:#000d;display:none;place-items:center;z-index:300;padding:16px;}
 .modal.show{display:grid;}
-.modal-card{width:min(520px,100%);max-height:90vh;overflow:auto;background:linear-gradient(145deg,#1c1440,#120b2c);
-  border:1px solid #4a3b7a;border-radius:20px;padding:22px;}
+.modal-card{width:min(440px,100%);max-height:90vh;overflow:auto;background:linear-gradient(145deg,#1c1440,#120b2c);
+  border:1px solid #5d43a8;border-radius:22px;padding:22px;}
 .form-row{display:grid;gap:7px;margin:13px 0;}
 .form-row label{font-size:13px;color:#c9bfe8;}
 .form-row input,.form-row textarea,.form-row select{width:100%;border:1px solid #4a3b7a;background:#160f30;
@@ -323,8 +325,28 @@ a{color:inherit}
 .form-row textarea{min-height:80px;}
 .modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;flex-wrap:wrap;}
 .flash{background:#1e1642;border:1px solid var(--blue);border-radius:10px;padding:12px 16px;margin:14px 0;font-size:14px;}
-.fab{position:fixed;right:20px;bottom:20px;border-radius:50%;width:56px;height:56px;font-size:22px;
-  background:linear-gradient(90deg,var(--blue),var(--purple));border:0;color:#fff;box-shadow:0 8px 22px #a855f755;cursor:pointer;}
+.fab{position:fixed;right:20px;bottom:85px;border-radius:50%;width:52px;height:52px;font-size:20px;
+  background:linear-gradient(90deg,var(--blue),var(--purple));border:0;color:#fff;box-shadow:0 8px 22px #a855f755;cursor:pointer;z-index:40;}
+
+/* Bottom Nav Bar (ដូចในรูปที่ 1) */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;height:70px;background:#120c29;border-top:1px solid var(--border);
+  display:flex;justify-content:space-around;align-items:center;z-index:40;padding-bottom:env(safe-area-inset-bottom);}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:3px;color:var(--muted);font-size:11px;padding:6px 12px;border-radius:12px;background:transparent;border:0;cursor:pointer;}
+.nav-item.active{color:#fff;background:#23174f;}
+.nav-item svg{width:22px;height:22px;fill:currentColor;}
+
+/* App Detail Modal (ដូចในรูปที่ 2) */
+.detail-top{display:flex;align-items:center;gap:14px;margin-bottom:16px;}
+.detail-icon{width:68px;height:68px;border-radius:18px;overflow:hidden;flex-shrink:0;background:#2a1f56;display:grid;place-items:center;}
+.detail-icon img{width:100%;height:100%;object-fit:cover;}
+.detail-info h2{margin:0 0 2px;font-size:18px;}
+.detail-info p{margin:0 0 6px;color:var(--muted);font-size:13px;}
+.badge{display:inline-block;padding:3px 8px;background:#271d4f;color:var(--purple);border-radius:8px;font-size:11px;font-weight:700;}
+.stats-row{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;background:#160f30;border:1px solid var(--border);border-radius:14px;padding:12px 6px;margin:16px 0;}
+.stat-box .val{font-size:15px;font-weight:800;color:#fff;display:flex;align-items:center;justify-content:center;gap:3px;}
+.stat-box .val span{color:var(--yellow);font-size:14px;}
+.stat-box .lbl{font-size:11px;color:var(--muted);margin-top:2px;}
+.verified{color:var(--green);font-size:12px;display:flex;align-items:center;gap:4px;}
 </style>
 </head>
 <body>
@@ -332,7 +354,6 @@ a{color:inherit}
 <header class="store-header">
   <div class="header-top">
     <div class="logo-brand">
-      <!-- Owner Profile Picture Button (Clicking opens profile modal) -->
       <button class="owner-avatar-btn" title="Owner Profile" onclick="document.getElementById('profileModal').classList.add('show')">
         {% if owner['avatar_filename'] %}
           <img src="{{ url_for('avatar_file', filename=owner['avatar_filename']) }}" alt="Owner">
@@ -356,22 +377,35 @@ a{color:inherit}
     {% for m in messages %}<div class="flash">{{ m }}</div>{% endfor %}
   {% endwith %}
 
-  <div class="tabs">
-    <a href="{{ url_for('index', tab='apps') }}" class="{{ 'active' if tab != 'top' else '' }}">▦ All APKs</a>
-    <a href="{{ url_for('index', tab='top') }}" class="{{ 'active' if tab == 'top' else '' }}">🏆 Top Rated</a>
+  <div class="section-title">
+    <h2>
+      {% if tab == 'top' %}Top Rated Apps
+      {% elif tab == 'games' %}Games
+      {% elif tab == 'books' %}Books & References
+      {% else %}All Apps{% endif %}
+    </h2>
   </div>
-
-  <div class="section-title"><h2>{{ 'Top Rated APKs' if tab == 'top' else 'All APK Files' }}</h2></div>
 
   {% if apps %}
   <div class="cards-grid" id="appsGrid">
     {% for a in apps %}
-    <article class="card" data-name="{{ a['name']|lower }}">
+    <article class="card" data-name="{{ a['name']|lower }}" onclick="openAppDetail(
+        '{{ a['id'] }}',
+        '{{ a['name'] }}',
+        '{{ a['category'] }}',
+        '{{ a['rating'] }}',
+        '{{ a['downloads'] }}',
+        '{{ a['reviews_count'] }}',
+        `{{ a['description'] | replace('`', '') }}`,
+        '{{ url_for('icon', app_id=a['id']) if a['icon_filename'] else '' }}',
+        '{{ url_for('download', app_id=a['id']) }}',
+        '{{ format_size(a['file_size']) }}'
+    )">
       <div class="thumb">
         {% if a['icon_filename'] %}
-          <img src="{{ url_for('icon', app_id=a['id']) }}" alt="{{ a['name'] }} icon">
+          <img src="{{ url_for('icon', app_id=a['id']) }}" alt="{{ a['name'] }}">
         {% else %}
-          <div style="width:100%;height:100%;display:grid;place-items:center;font-size:34px;font-weight:900;
+          <div style="width:100%;height:100%;display:grid;place-items:center;font-size:26px;font-weight:900;
                       background:linear-gradient(135deg,var(--blue),var(--purple),var(--pink));color:#fff;">
             {{ a['name'][0]|upper }}
           </div>
@@ -379,29 +413,88 @@ a{color:inherit}
       </div>
       <h3>{{ a['name'] }}</h3>
       <div class="rating">★ {{ a['rating'] }}</div>
-      <div class="filesize">{{ format_size(a['file_size']) }}</div>
-      <div class="card-actions">
-        <a class="small-btn install" href="{{ url_for('download', app_id=a['id']) }}">Download</a>
-      </div>
     </article>
     {% endfor %}
   </div>
   {% else %}
   <div class="empty-store">
-    <div style="font-size:56px;">📲</div>
-    <h2>No APKs Uploaded Yet</h2>
-    <p style="color:var(--muted)">Click below to add your first Android APK.</p>
-    <button class="btn" style="margin-top:14px;" onclick="document.getElementById('uploadModal').classList.add('show')">
-      🚀 Add APK File
-    </button>
+    <div style="font-size:52px;">📲</div>
+    <h2>No Items Found</h2>
+    <p style="color:var(--muted)">Click the plus button below to add your first APK.</p>
   </div>
   {% endif %}
 </div>
 
-<!-- Floating Action Button -->
+<!-- Floating Action Button for Upload -->
 <button class="fab" title="Upload APK" onclick="document.getElementById('uploadModal').classList.add('show')">➕</button>
 
-<!-- Owner Profile Modal (Protected by Owner Password so visitors cannot change it) -->
+<!-- Bottom Navigation Bar (Matching Screenshot 1) -->
+<nav class="bottom-nav">
+  <a href="{{ url_for('index', tab='apps') }}" class="nav-item {{ 'active' if tab == 'apps' else '' }}">
+    <svg viewBox="0 0 24 24"><path d="M4 4h7v7H4V4m9 0h7v7h-7V4M4 13h7v7H4v-7m9 0h7v7h-7v-7Z"/></svg>
+    Apps
+  </a>
+  <a href="{{ url_for('index', tab='games') }}" class="nav-item {{ 'active' if tab == 'games' else '' }}">
+    <svg viewBox="0 0 24 24"><path d="M21 6H3a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h18a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2m-10 3h2v2h2v2h-2v2h-2v-2H9v-2h2V9m3.5 7a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3m3-3a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3Z"/></svg>
+    Games
+  </a>
+  <a href="{{ url_for('index', tab='top') }}" class="nav-item {{ 'active' if tab == 'top' else '' }}">
+    <svg viewBox="0 0 24 24"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/></svg>
+    Top Apps
+  </a>
+  <a href="{{ url_for('index', tab='books') }}" class="nav-item {{ 'active' if tab == 'books' else '' }}">
+    <svg viewBox="0 0 24 24"><path d="M18 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2M6 4h5v8l-2.5-1.5L6  12V4Z"/></svg>
+    Books
+  </a>
+</nav>
+
+<!-- App Detail Modal (Matching Screenshot 2) -->
+<div class="modal" id="appDetailModal">
+  <div class="modal-card">
+    <div style="display:flex;justify-content:flex-end;margin-bottom:-10px;">
+      <button onclick="document.getElementById('appDetailModal').classList.remove('show')" style="background:none;border:0;color:#fff;font-size:20px;cursor:pointer;">✕</button>
+    </div>
+    <div class="detail-top">
+      <div class="detail-icon" id="modalIconContainer"></div>
+      <div class="detail-info">
+        <h2 id="modalAppName">App Name</h2>
+        <p id="modalAppAuthor">Owner Store</p>
+        <span class="badge" id="modalAppCategory">Tools</span>
+      </div>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-box">
+        <div class="val"><span id="modalAppRating">5.0</span> ★</div>
+        <div class="lbl" id="modalAppReviews">6 reviews</div>
+      </div>
+      <div class="stat-box">
+        <div class="val" id="modalAppDownloads">200</div>
+        <div class="lbl">Downloads</div>
+      </div>
+      <div class="stat-box">
+        <div class="val" style="color:var(--green);justify-content:center;">🛡️</div>
+        <div class="lbl">Verified</div>
+      </div>
+    </div>
+
+    <div style="margin:16px 0;">
+      <h3 style="font-size:14px;margin:0 0 6px;">About this app</h3>
+      <p id="modalAppDesc" style="font-size:13px;color:var(--muted);margin:0;line-height:1.5;white-space:pre-wrap;"></p>
+    </div>
+
+    <div style="background:#160f30;border:1px solid var(--border);border-radius:14px;padding:12px;text-align:center;margin:16px 0;">
+      <p style="font-size:12px;color:var(--muted);margin:0 0 8px;">Rate this app</p>
+      <div style="color:var(--yellow);font-size:22px;letter-spacing:4px;">☆ ☆ ☆ ☆ ☆</div>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:20px;">
+      <a id="modalDownloadBtn" class="btn" style="flex:1;text-align:center;display:grid;place-items:center;" href="#">Download</a>
+    </div>
+  </div>
+</div>
+
+<!-- Owner Profile Modal -->
 <div class="modal" id="profileModal">
   <div class="modal-card" style="text-align:center;">
     <h2>👑 Owner Profile</h2>
@@ -444,6 +537,7 @@ a{color:inherit}
           <option>Tools</option>
           <option>Productivity</option>
           <option>Social</option>
+          <option>Books</option>
           <option>Utilities</option>
         </select>
       </div>
@@ -474,6 +568,27 @@ function filterCards(){
     card.style.display = (!q || card.dataset.name.includes(q)) ? '' : 'none';
   });
 }
+
+function openAppDetail(id, name, category, rating, downloads, reviews, desc, iconUrl, downloadUrl, fileSize){
+  document.getElementById('modalAppName').innerText = name;
+  document.getElementById('modalAppAuthor').innerText = "{{ owner['name'] }}";
+  document.getElementById('modalAppCategory').innerText = category;
+  document.getElementById('modalAppRating').innerText = rating;
+  document.getElementById('modalAppDownloads').innerText = downloads + '+';
+  document.getElementById('modalAppReviews').innerText = reviews + ' reviews';
+  document.getElementById('modalAppDesc').innerText = desc;
+  document.getElementById('modalDownloadBtn').href = downloadUrl;
+
+  const iconContainer = document.getElementById('modalIconContainer');
+  if(iconUrl){
+    iconContainer.innerHTML = `<img src="${iconUrl}" alt="${name}">`;
+  } else {
+    iconContainer.innerHTML = `<div style="width:100%;height:100%;display:grid;place-items:center;font-size:28px;font-weight:900;background:linear-gradient(135deg,var(--blue),var(--purple),var(--pink));color:#fff;">${name[0].toUpperCase()}</div>`;
+  }
+
+  document.getElementById('appDetailModal').classList.add('show');
+}
+
 document.querySelectorAll('.modal').forEach(m=>{
   m.addEventListener('click', e=>{ if(e.target === m) m.classList.remove('show'); });
 });
