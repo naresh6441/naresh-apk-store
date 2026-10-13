@@ -82,7 +82,7 @@ def init_db():
     
     existing = conn.execute("SELECT id FROM owner_profile WHERE id = 1").fetchone()
     if not existing:
-        default_pwd = generate_password_hash("naresh123")
+        default_pwd = generate_password_hash("naresh233")
         conn.execute(
             "INSERT INTO owner_profile (id, name, avatar_filename, password_hash) VALUES (1, ?, ?, ?)",
             ("Naresh XX", "", default_pwd)
