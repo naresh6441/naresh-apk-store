@@ -1,7 +1,6 @@
 import os
 import sqlite3
 import secrets
-import tempfile
 from datetime import datetime
 
 from flask import (
@@ -11,16 +10,8 @@ from flask import (
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 
-# Automatic Write Permission & Path Check (Prevents permission denied errors)
-try:
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    test_path = os.path.join(BASE_DIR, "test_write.tmp")
-    with open(test_path, "w") as f:
-        f.write("test")
-    os.remove(test_path)
-except Exception:
-    BASE_DIR = tempfile.gettempdir()
-
+# Permanent storage in the script's directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 DB_PATH = os.path.join(BASE_DIR, "store.db")
 
@@ -32,7 +23,7 @@ ALLOWED_ICON_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp", "svg"}
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
-# File upload limit set to 2GB to support larger APKs like Termux
+# File upload limit set to 2GB for large APKs like Termux
 app.config["MAX_CONTENT_LENGTH"] = 2000 * 1024 * 1024 
 
 app.config.update(
@@ -82,7 +73,7 @@ def init_db():
     
     existing = conn.execute("SELECT id FROM owner_profile WHERE id = 1").fetchone()
     if not existing:
-        default_pwd = generate_password_hash("naresh233")
+        default_pwd = generate_password_hash("naresh123")
         conn.execute(
             "INSERT INTO owner_profile (id, name, avatar_filename, password_hash) VALUES (1, ?, ?, ?)",
             ("Naresh XX", "", default_pwd)
@@ -217,7 +208,7 @@ def update_profile():
 
     owner = get_owner()
     if not check_password_hash(owner["password_hash"], password):
-        flash("❌ Wrong Owner Password! Profile cannot be changed.")
+        flash("❌ Wrong Owner Password! Profile cannot be changed. (Default is: naresh123)")
         return redirect(url_for("index"))
 
     avatar_filename = owner["avatar_filename"]
@@ -518,7 +509,7 @@ a{color:inherit;text-decoration:none}
         <input type="file" name="avatar_file" accept="image/*">
       </div>
       <div class="form-row">
-        <label>🔐 Owner Password</label>
+        <label>🔐 Owner Password (Default is: naresh123)</label>
         <input type="password" name="owner_password" placeholder="Enter password to update profile" required>
       </div>
       <div class="modal-actions">
